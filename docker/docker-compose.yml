@@ -1,0 +1,17 @@
+services:
+  oracle:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: solana-launch-oracle:local
+    container_name: solana-launch-oracle
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    ports:
+      - "3000:3000"
+    volumes:
+      - oracle-data:/app/data
+
+volumes:
+  oracle-data:
