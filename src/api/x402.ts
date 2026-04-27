@@ -44,7 +44,7 @@ export async function buildPaymentMiddleware(prices: PriceMap): Promise<Middlewa
         price,
         network,
         config: {
-          description: `Solana token launch data — ${path}`,
+          description: `Solana token launch data - ${path}`,
           mimeType: "application/json",
           maxTimeoutSeconds: 60,
         },
@@ -116,7 +116,7 @@ function placeholderMiddleware(prices: PriceMap): MiddlewareHandler {
             network: mapNetwork(config.x402.network),
             payTo: config.x402.receiverAddress,
             resource: `${c.req.method} ${path}`,
-            description: `Solana token launch data — ${path}`,
+            description: `Solana token launch data - ${path}`,
             mimeType: "application/json",
           },
         ],

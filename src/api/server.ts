@@ -33,12 +33,12 @@ export async function buildApp(): Promise<Hono> {
   app.get("/", (c) =>
     c.json({
       service: "solana-launch-oracle",
-      docs: "https://github.com/YOUR_GITHUB_USER/solana-launch-oracle",
+      docs: "https://github.com/AsaiShota/solana-launch-oracle",
       endpoints: {
-        "GET /health": "free — service health",
-        "GET /sources/status": "free — watcher connection status",
-        "GET /launches/recent": "x402 $0.001 — list recent launches (?since=10&source=all&limit=20)",
-        "GET /launches/:mint": "x402 $0.005 — launch detail with AI summary (EN/JA) and risk score",
+        "GET /health": "free - service health",
+        "GET /sources/status": "free - watcher connection status",
+        "GET /launches/recent": "x402 $0.001 - list recent launches (?since=10&source=all&limit=20)",
+        "GET /launches/:mint": "x402 $0.005 - launch detail with AI summary (EN/JA) and risk score",
       },
     }),
   );
