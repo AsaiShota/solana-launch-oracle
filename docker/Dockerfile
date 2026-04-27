@@ -30,9 +30,10 @@ RUN npm install --omit=dev
 
 COPY --from=builder /app/dist ./dist
 
-# Persistent SQLite location; mount a volume here in compose / Railway.
+# Persistent SQLite location. Railway disallows the Dockerfile VOLUME keyword
+# (they manage volumes themselves) so we just create the dir; mount a volume
+# here via docker-compose or Railway/Render's volume UI.
 RUN mkdir -p /app/data
-VOLUME ["/app/data"]
 ENV DATABASE_PATH=/app/data/launches.db
 
 EXPOSE 3000
