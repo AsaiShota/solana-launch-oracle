@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "x402-enabled Solana token launch detection API. Monitors Pump.fun, Raydium V4, Raydium CPMM, and PumpSwap.",
   "license": "MIT",
-  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -58,18 +58,18 @@ export function getDb(): Database.Database {
   db.pragma("synchronous = NORMAL");
   db.pragma("foreign_keys = ON");
 
-  const schemaPath = path.resolve("src/db/schema.sql");
-  // Schema may be bundled into dist or read from src; tolerate both.
-  let schema: string;
-  if (fs.existsSync(schemaPath)) {
-    schema = fs.readFileSync(schemaPath, "utf-8");
-  } else {
-    const distSchemaPath = path.resolve("dist/db/schema.sql");
-    if (!fs.existsSync(distSchemaPath)) {
-      throw new Error(`schema.sql not found at ${schemaPath} or ${distSchemaPath}`);
-    }
-    schema = fs.readFileSync(distSchemaPath, "utf-8");
+  // Try several plausible locations: alongside this compiled file (Docker /
+  // production), or back up to repo root (dev with `tsx`).
+  const candidates = [
+    path.join(__dirname, "schema.sql"),
+    path.resolve("dist/db/schema.sql"),
+    path.resolve("src/db/schema.sql"),
+  ];
+  const schemaPath = candidates.find((p) => fs.existsSync(p));
+  if (!schemaPath) {
+    throw new Error(`schema.sql not found in any of: ${candidates.join(", ")}`);
   }
+  const schema = fs.readFileSync(schemaPath, "utf-8");
   db.exec(schema);
 
   logger.info(`SQLite ready at ${dbPath}`);

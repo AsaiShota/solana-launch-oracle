@@ -13,7 +13,7 @@ RUN npm install --include=dev
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && \
-    cp -r src/db dist/db
+    cp src/db/*.sql dist/db/
 
 # --- runtime stage -------------------------------------------------------
 FROM node:20-bookworm-slim
