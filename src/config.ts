@@ -59,6 +59,8 @@ export const config = {
       "https://api.cdp.coinbase.com/platform/v2/x402",
     ),
     network: optional("X402_NETWORK", "base"),
+    cdpApiKeyId: process.env.CDP_API_KEY_ID ?? "",
+    cdpApiKeySecret: process.env.CDP_API_KEY_SECRET ?? "",
   },
 
   watchers: {

@@ -3,75 +3,207 @@ import { config } from "../config";
 import { logger } from "../logger";
 
 /**
- * x402 middleware factory.
+ * x402 v2 middleware factory with Bazaar discovery extension.
  *
- * Default path: load `x402-hono` v1 (single package, simple API) and wire each
- * route + price + Base network + receiver address. Why v1 (not v2 @x402/*):
- * the v1 API is one import call and matches the original task spec; the v2
- * split (`@x402/hono` + `@x402/core` + `@x402/evm`) is the strategic future
- * but adds three packages and a more verbose initialization. Migration path
- * is tracked in the package README — swap this file when ready.
+ * Why v2: the v1 `x402-hono` package does not support the Bazaar extension
+ * pipeline; CDP's auto-cataloging triggers on `bazaarResourceServerExtension`
+ * + `declareDiscoveryExtension()` declared in the route config. First
+ * successful settlement against a Bazaar-aware route causes the CDP
+ * facilitator to index the resource into the public catalog.
  *
- * Fallback: if `x402-hono` is missing or throws on init, drop to a placeholder
- * middleware that returns HTTP 402 unless an `X-PAYMENT` header is present.
- * This keeps the rest of the service deployable.
+ * Fallback: if any v2 package is missing or init throws, drop to a placeholder
+ * middleware so the rest of the service still boots — same behavior as v1.
  */
 
-export interface PriceMap {
-  [routePath: string]: string; // e.g., "/launches/recent": "$0.001"
-}
-
-export async function buildPaymentMiddleware(prices: PriceMap): Promise<MiddlewareHandler> {
-  const network = mapNetwork(config.x402.network);
+export async function buildPaymentMiddleware(): Promise<MiddlewareHandler> {
+  const networkCaip2 = mapNetworkCaip2(config.x402.network);
   const payTo = config.x402.receiverAddress as `0x${string}`;
   const facilitatorUrl = config.x402.facilitatorUrl;
 
   if (!payTo.startsWith("0x") || payTo.length !== 42) {
     logger.warn(`X402_RECEIVER_ADDRESS is not a valid EVM address (${payTo}); using placeholder middleware`);
-    return placeholderMiddleware(prices);
+    return placeholderMiddleware();
   }
 
   try {
-    const mod: any = await dynImport("x402-hono");
-    const { paymentMiddleware } = mod;
-    if (typeof paymentMiddleware !== "function") {
-      throw new Error("x402-hono.paymentMiddleware is not a function");
+    const [coreServer, evmServer, ext, honoMod, cdpMod] = await Promise.all([
+      dynImport("@x402/core/server"),
+      dynImport("@x402/evm/exact/server"),
+      dynImport("@x402/extensions/bazaar"),
+      dynImport("@x402/hono"),
+      dynImport("@coinbase/x402"),
+    ]);
+
+    const { HTTPFacilitatorClient, x402ResourceServer } = coreServer as any;
+    const { ExactEvmScheme } = evmServer as any;
+    const { bazaarResourceServerExtension, declareDiscoveryExtension } = ext as any;
+    const { paymentMiddleware } = honoMod as any;
+    const { createFacilitatorConfig } = cdpMod as any;
+
+    const cdpKeyId = config.x402.cdpApiKeyId;
+    const cdpKeySecret = config.x402.cdpApiKeySecret;
+
+    let facilitatorClient: any;
+    if (cdpKeyId && cdpKeySecret) {
+      // @coinbase/x402 builds a FacilitatorConfig that signs each request with
+      // the CDP API key (ECDSA JWT in Authorization header). Required for
+      // verify/settle/getSupported against api.cdp.coinbase.com.
+      const cfg = createFacilitatorConfig(cdpKeyId, cdpKeySecret);
+      facilitatorClient = new HTTPFacilitatorClient({
+        url: cfg.url ?? facilitatorUrl,
+        createAuthHeaders: cfg.createAuthHeaders,
+      });
+      logger.info(`x402 facilitator: CDP-authenticated (url=${cfg.url ?? facilitatorUrl})`);
+    } else {
+      facilitatorClient = new HTTPFacilitatorClient({ url: facilitatorUrl });
+      logger.warn(
+        "CDP_API_KEY_ID / CDP_API_KEY_SECRET not set — facilitator calls will be unauthenticated and CDP will reject them with 401.",
+      );
     }
 
-    const routes: Record<string, any> = {};
-    for (const [path, price] of Object.entries(prices)) {
-      routes[path] = {
-        price,
-        network,
-        config: {
-          description: `Solana token launch data - ${path}`,
-          mimeType: "application/json",
+    const resourceServer = new x402ResourceServer(facilitatorClient)
+      .register(networkCaip2, new ExactEvmScheme())
+      .registerExtension(bazaarResourceServerExtension);
+
+    const routes = {
+      "GET /launches/recent": {
+        accepts: {
+          scheme: "exact" as const,
+          price: "$0.001",
+          network: networkCaip2,
+          payTo,
           maxTimeoutSeconds: 60,
         },
-      };
-    }
+        description:
+          "Real-time Solana token launch detection across Pump.fun, Raydium V4/CPMM, and PumpSwap. Returns launch metadata, liquidity, creator info.",
+        mimeType: "application/json",
+        extensions: {
+          ...declareDiscoveryExtension({
+            input: { since: 10, source: "all", limit: 20 },
+            inputSchema: {
+              properties: {
+                since: {
+                  type: "number",
+                  description: "Minutes back to look (1-60). Default 10.",
+                  minimum: 1,
+                  maximum: 60,
+                },
+                source: {
+                  type: "string",
+                  description:
+                    "Filter by launch venue. Use 'all' to include every source.",
+                  enum: ["pumpfun", "raydium-v4", "raydium-cpmm", "pumpswap", "all"],
+                },
+                limit: {
+                  type: "number",
+                  description: "Max items to return (1-100). Default 20.",
+                  minimum: 1,
+                  maximum: 100,
+                },
+              },
+            },
+            output: {
+              example: {
+                since_minutes: 10,
+                source: "all",
+                count: 1,
+                items: [
+                  {
+                    mint: "8xQk5y9JvmTzqYHj2hCQwsR1pZ8mFfL3xN7vHkBdGcVa",
+                    source: "pumpfun",
+                    signature:
+                      "5j7sLW3hTX9qZbY8hQpJv1mFcRkN2pXgD4HsTnYwBvU3kRfMzC8VqLpA9oXn1bEcFsYrTuGhJiKlMnPq",
+                    name: "Example Token",
+                    symbol: "EX",
+                    metadata_uri: "https://ipfs.io/ipfs/Qm...",
+                    creator: "9y8uC3BfdQpAvR6sH2zXmKjLnE5tWg1NoYu7VxZbPi4",
+                    initial_liquidity_sol: 4.21,
+                    pool_address: "3krLp9ZsEqYbR2xN7vMoWsT8gKfH6cAj4DnUiVePqXyB",
+                    created_at: "2026-04-28T05:10:00.000Z",
+                  },
+                ],
+              },
+            },
+          }),
+        },
+      },
+      "GET /launches/:mint": {
+        accepts: {
+          scheme: "exact" as const,
+          price: "$0.005",
+          network: networkCaip2,
+          payTo,
+          maxTimeoutSeconds: 60,
+        },
+        description:
+          "Detailed launch info with AI-generated risk summary (English + Japanese) and 0-100 risk score for a specific Solana mint address.",
+        mimeType: "application/json",
+        extensions: {
+          ...declareDiscoveryExtension({
+            input: { mint: "8xQk5y9JvmTzqYHj2hCQwsR1pZ8mFfL3xN7vHkBdGcVa" },
+            inputSchema: {
+              properties: {
+                mint: {
+                  type: "string",
+                  description:
+                    "Solana SPL token mint address (base58, 32-50 chars).",
+                  minLength: 32,
+                  maxLength: 50,
+                },
+              },
+              required: ["mint"],
+            },
+            output: {
+              example: {
+                mint: "8xQk5y9JvmTzqYHj2hCQwsR1pZ8mFfL3xN7vHkBdGcVa",
+                source: "pumpfun",
+                signature:
+                  "5j7sLW3hTX9qZbY8hQpJv1mFcRkN2pXgD4HsTnYwBvU3kRfMzC8VqLpA9oXn1bEcFsYrTuGhJiKlMnPq",
+                name: "Example Token",
+                symbol: "EX",
+                metadata_uri: "https://ipfs.io/ipfs/Qm...",
+                creator: "9y8uC3BfdQpAvR6sH2zXmKjLnE5tWg1NoYu7VxZbPi4",
+                initial_liquidity_sol: 4.21,
+                pool_address: "3krLp9ZsEqYbR2xN7vMoWsT8gKfH6cAj4DnUiVePqXyB",
+                created_at: "2026-04-28T05:10:00.000Z",
+                ai_summary: {
+                  en: "Newly minted Pump.fun token. Low initial liquidity (~4 SOL). Creator wallet has no prior history. Treat as high risk.",
+                  ja: "Pump.fun の新規ミント。初期流動性が低く（約4 SOL）、作成者ウォレットに過去履歴なし。ハイリスク。",
+                },
+                risk_score: 73,
+                ai_computed_at: "2026-04-28T05:10:05.000Z",
+              },
+            },
+          }),
+        },
+      },
+    };
 
-    const mw = paymentMiddleware(payTo, routes, { url: facilitatorUrl });
+    // syncFacilitatorOnStart: true when CDP credentials are present — the SDK
+    // requires getSupported() to pass before it will build PaymentRequirements.
+    // Without credentials we skip the sync so the server still boots, even though
+    // any real settlement will fail with 401 until keys are configured.
+    const syncOnStart = Boolean(cdpKeyId && cdpKeySecret);
+    const mw = paymentMiddleware(routes, resourceServer, undefined, undefined, syncOnStart);
     logger.info(
-      `x402 middleware initialized (network=${network}, payTo=${payTo}, routes=${Object.keys(prices).join(",")})`,
+      `x402 v2 middleware initialized (network=${networkCaip2}, payTo=${payTo}, bazaar=enabled, routes=GET /launches/recent,GET /launches/:mint, syncOnStart=${syncOnStart})`,
     );
     return mw as MiddlewareHandler;
   } catch (err) {
     logger.warn(
-      "x402-hono unavailable or failed to init — falling back to placeholder 402 middleware. " +
-        "TODO: replace with proper x402 SDK once installation is resolved.",
+      "x402 v2 SDK unavailable or failed to init — falling back to placeholder 402 middleware. " +
+        "TODO: re-check once @x402/* v2 packages are installed.",
       err,
     );
-    return placeholderMiddleware(prices);
+    return placeholderMiddleware();
   }
 }
 
-function mapNetwork(input: string): "base" | "base-sepolia" {
-  // x402-hono v1 expects "base" or "base-sepolia" string literals.
+function mapNetworkCaip2(input: string): "eip155:8453" | "eip155:84532" {
+  // v2 SDK requires CAIP-2 chain IDs. Map our env values to the canonical form.
   const v = input.toLowerCase();
-  if (v === "base-sepolia" || v === "eip155:84532") return "base-sepolia";
-  // Default everything else to mainnet "base".
-  return "base";
+  if (v === "base-sepolia" || v === "eip155:84532") return "eip155:84532";
+  return "eip155:8453";
 }
 
 async function dynImport(name: string): Promise<unknown> {
@@ -80,12 +212,14 @@ async function dynImport(name: string): Promise<unknown> {
 
 /**
  * Placeholder middleware: returns 402 unless `X-PAYMENT` header is present.
- * Body matches the spirit of the x402 spec so AI-agent clients can still see
- * the price requirement and decide.
- *
- * TODO: replace with proper x402 SDK once package install is verified.
+ * Used only when v2 packages cannot load. Intentionally lacks Bazaar metadata.
  */
-function placeholderMiddleware(prices: PriceMap): MiddlewareHandler {
+function placeholderMiddleware(): MiddlewareHandler {
+  const prices: Record<string, string> = {
+    "/launches/recent": "$0.001",
+    "/launches/:mint": "$0.005",
+  };
+
   return async (c, next) => {
     const path = c.req.path;
     let priceStr: string | null = null;
@@ -113,7 +247,7 @@ function placeholderMiddleware(prices: PriceMap): MiddlewareHandler {
           {
             scheme: "exact",
             price: priceStr,
-            network: mapNetwork(config.x402.network),
+            network: mapNetworkCaip2(config.x402.network),
             payTo: config.x402.receiverAddress,
             resource: `${c.req.method} ${path}`,
             description: `Solana token launch data - ${path}`,
@@ -129,16 +263,10 @@ function placeholderMiddleware(prices: PriceMap): MiddlewareHandler {
 function matchPath(pattern: string, actual: string): boolean {
   const pParts = pattern.split("/").filter(Boolean);
   const aParts = actual.split("/").filter(Boolean);
-  const wild = pParts[pParts.length - 1] === "*";
-  if (!wild && pParts.length !== aParts.length) return false;
-  if (wild && aParts.length < pParts.length - 1) return false;
-
-  const len = wild ? pParts.length - 1 : pParts.length;
-  for (let i = 0; i < len; i++) {
-    const p = pParts[i];
-    const a = aParts[i];
-    if (p.startsWith(":")) continue;
-    if (p !== a) return false;
+  if (pParts.length !== aParts.length) return false;
+  for (let i = 0; i < pParts.length; i++) {
+    if (pParts[i].startsWith(":")) continue;
+    if (pParts[i] !== aParts[i]) return false;
   }
   return true;
 }

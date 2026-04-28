@@ -21,11 +21,8 @@ export async function buildApp(): Promise<Hono> {
   app.route("/", health);
 
   // Metered routes: /launches/*
-  // Per-route prices: list = $0.001, detail (incl. AI summary) = $0.005
-  const x402 = await buildPaymentMiddleware({
-    "/launches/recent": "$0.001",
-    "/launches/:mint": "$0.005",
-  });
+  // Per-route prices and Bazaar discovery metadata are now declared inside x402.ts (v2 SDK).
+  const x402 = await buildPaymentMiddleware();
   app.use("/launches/*", x402);
   app.route("/launches", launches);
 
