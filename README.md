@@ -134,9 +134,33 @@ npm start
 | `X402_RECEIVER_ADDRESS`   | Your EVM address to receive USDC payments on Base       |
 | `X402_FACILITATOR_URL`    | Default Coinbase CDP facilitator                        |
 | `X402_NETWORK`            | `base` (= `eip155:8453`) or `base-sepolia`              |
+| `CDP_API_KEY_ID`          | CDP API key id (required by v2 SDK to call CDP facilitator) |
+| `CDP_API_KEY_SECRET`      | CDP API key secret                                      |
 | `PORT`                    | Default `3000`                                          |
 | `DATABASE_PATH`           | SQLite path (default `./data/launches.db`)              |
 | `ENABLE_PUMPFUN` etc.     | `true`/`false` per watcher                              |
+
+## Triggering Bazaar registration
+
+CDP's Bazaar catalogs the resource on the **first successful x402 settlement**.
+A buyer-side script is bundled to drive that round-trip:
+
+```bash
+npm install
+TARGET_URL=https://oracle-production-d5ba.up.railway.app/launches/recent \
+TEST_BUYER_PRIVATE_KEY=0xYourTestWalletKey \
+npx tsx scripts/test-settlement.ts
+```
+
+Requirements for the test wallet:
+- A few cents of USDC on Base mainnet (request only spends $0.001)
+- A few cents of ETH on Base mainnet for gas
+
+After the script prints `[settlement]` with `success: true`, verify catalog entry:
+
+```bash
+curl "https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=<X402_RECEIVER_ADDRESS>"
+```
 
 ## Architecture
 

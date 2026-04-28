@@ -16,23 +16,25 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.1",
+    "@coinbase/x402": "^2.1.0",
     "@hono/node-server": "^1.13.7",
     "@solana/web3.js": "^1.98.0",
-    "better-sqlite3": "^11.7.0",
-    "dotenv": "^16.4.7",
-    "hono": "^4.6.14",
-    "ws": "^8.18.0",
-    "@coinbase/x402": "^2.1.0",
     "@x402/core": "~2.11.0",
     "@x402/evm": "~2.11.0",
     "@x402/extensions": "~2.11.0",
-    "@x402/hono": "~2.11.0"
+    "@x402/hono": "~2.11.0",
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7",
+    "hono": "^4.6.14",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
+    "@x402/fetch": "~2.11.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "viem": "^2.48.4"
   }
 }
