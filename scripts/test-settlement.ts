@@ -41,7 +41,7 @@ async function main(): Promise<void> {
     schemes: [
       {
         network: "eip155:8453",
-        client: new ExactEvmScheme({ signer: account }),
+        client: new ExactEvmScheme(account),
       },
     ],
   });
