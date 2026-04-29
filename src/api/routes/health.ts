@@ -7,6 +7,7 @@ router.get("/health", (c) =>
   c.json({
     status: "ok",
     service: "solana-launch-oracle",
+    build: "https-fwd-2",
     time: new Date().toISOString(),
   }),
 );
