@@ -66,22 +66,14 @@ export class LogWsPool {
       return;
     }
 
-    this.ws.on("open", async () => {
+    this.ws.on("open", () => {
       logger.info(`[ws-pool] WS open — re-subscribing ${this.registered.length} sources`);
+      this.reconnectAttempts = 0;
       this.activeSubs.clear();
       this.pendingSubs.clear();
-      // Stagger subscribes: QuickNode's free Solana endpoint terminates the
-      // connection (1001 upstream went away) when 4 logsSubscribe messages
-      // arrive in a burst right after handshake. 250ms apart is comfortable.
       for (const info of this.registered) {
-        if (this.ws?.readyState !== WebSocket.OPEN) break;
         this.subscribe(info);
-        await new Promise((r) => setTimeout(r, 250));
       }
-      // Only reset attempts once we've successfully sent the full sub batch
-      // and the connection is still alive — prevents the tight 1s-loop when
-      // every connect dies mid-subscribe.
-      if (this.ws?.readyState === WebSocket.OPEN) this.reconnectAttempts = 0;
       this.startPing();
     });
 
