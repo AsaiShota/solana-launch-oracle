@@ -17,6 +17,19 @@ export async function buildApp(): Promise<Hono> {
     return next();
   });
 
+  // Honor X-Forwarded-Proto from Railway / Fastly so the resource URL embedded
+  // in x402 PaymentRequired responses is https://. CDP's Bazaar indexer drops
+  // entries whose `resource.url` is http://.
+  app.use("*", async (c, next) => {
+    const proto = c.req.header("x-forwarded-proto");
+    if (proto === "https" && c.req.url.startsWith("http://")) {
+      const httpsUrl = "https://" + c.req.url.slice(7);
+      const newReq = new Request(httpsUrl, c.req.raw);
+      Object.defineProperty(c.req, "raw", { value: newReq });
+    }
+    return next();
+  });
+
   // Free routes (no x402): /health, /sources/status
   app.route("/", health);
 
