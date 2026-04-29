@@ -6,22 +6,20 @@ import { PumpfunWatcher } from "./pumpfun";
 import { RaydiumV4Watcher } from "./raydium-v4";
 import { RaydiumCpmmWatcher } from "./raydium-cpmm";
 import { PumpswapWatcher } from "./pumpswap";
-import { LogWsPool } from "./ws-pool";
 
-export interface WatcherRig {
-  pool: LogWsPool;
-  watchers: BaseLogWatcher[];
-}
+export function startAllWatchers(): BaseLogWatcher[] {
+  const wantPumpfun = config.watchers.pumpfun;
+  const wantRayV4 = config.watchers.raydiumV4;
+  const wantRayCpmm = config.watchers.raydiumCpmm;
+  const wantPumpswap = config.watchers.pumpswap;
 
-export function startAllWatchers(): WatcherRig {
-  const pool = new LogWsPool();
-  const watchers: BaseLogWatcher[] = [];
+  const built: BaseLogWatcher[] = [];
 
   for (const [enabled, name, mk] of [
-    [config.watchers.pumpfun, "pumpfun", () => new PumpfunWatcher()],
-    [config.watchers.raydiumV4, "raydium-v4", () => new RaydiumV4Watcher()],
-    [config.watchers.raydiumCpmm, "raydium-cpmm", () => new RaydiumCpmmWatcher()],
-    [config.watchers.pumpswap, "pumpswap", () => new PumpswapWatcher()],
+    [wantPumpfun, "pumpfun", () => new PumpfunWatcher()],
+    [wantRayV4, "raydium-v4", () => new RaydiumV4Watcher()],
+    [wantRayCpmm, "raydium-cpmm", () => new RaydiumCpmmWatcher()],
+    [wantPumpswap, "pumpswap", () => new PumpswapWatcher()],
   ] as const) {
     if (!enabled) {
       logger.warn(`[${name}] disabled by config`);
@@ -30,14 +28,13 @@ export function startAllWatchers(): WatcherRig {
     }
     try {
       const w = mk();
-      w.start(pool);
-      watchers.push(w);
+      w.start();
+      built.push(w);
     } catch (err) {
-      logger.error(`failed to register watcher ${name}`, err);
+      logger.error(`failed to start watcher ${name}`, err);
       setSourceStatus(name, "error", { lastError: String(err) });
     }
   }
 
-  pool.start();
-  return { pool, watchers };
+  return built;
 }
